@@ -1,0 +1,70 @@
+server:
+  port: 8091
+
+spring:
+  application:
+    name: analytics
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://login.microsoftonline.com/8ea291c8-4670-4598-8f0f-b5e216b5b755/v2.0
+          audiences: c6445b4c-7863-42ac-a620-2fa3b5ea58d8
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092,localhost:9093,localhost:9094}
+    consumer:
+      auto-offset-reset: earliest
+      # El offset se confirma recién cuando el evento quedó procesado (ack-mode record)
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
+        spring.json.use.type.headers: false
+        spring.json.trusted.packages: com.pedidos360.analytics.dto
+        max.poll.records: 100
+    producer:
+      # Solo lo usa el envío al DLT
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.block.ms: 5000
+    listener:
+      ack-mode: record
+      # 3 hilos por grupo = 1 por partición (los tópicos tienen 3 particiones)
+      concurrency: 3
+
+app:
+  security:
+    cognito:
+      issuer-uri: ${COGNITO_ISSUER:https://cognito-idp.us-east-1.amazonaws.com/us-east-1_GrYPmcDNr}
+      client-id: ${COGNITO_CLIENT_ID:60r3m35l2uqmmlfk5r1j5unhmo}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200,https://44.207.141.228}
+
+  kafka:
+    topicos:
+      interacciones: pedidos360.interacciones
+      pagos: pedidos360.pagos
+    # Tres consumer groups: cada uno recibe todos los eventos de su tópico y hace su propio trabajo
+    grupos:
+      recomendaciones: analytics-recomendaciones
+      metricas: analytics-metricas
+      pagos: analytics-pagos
+
+  catalogo:
+    # Nombre, categoría y stock de los productos para recomendar
+    url: ${CATALOGO_URL:http://localhost:8081/api/v1/catalogo}
+    refresco-ms: 300000
+
+  dynamodb:
+    # false = perfiles en memoria (desarrollo y pruebas)
+    habilitado: ${DYNAMODB_ENABLED:false}
+    region: ${AWS_REGION:us-east-1}
+    # Solo para DynamoDB Local; en AWS se deja vacío
+    endpoint: ${DYNAMODB_ENDPOINT:}
+    tabla-perfiles: ${DYNAMODB_TABLA_PERFILES:pedidos360-perfiles}
+    tabla-eventos: ${DYNAMODB_TABLA_EVENTOS:pedidos360-eventos}
+    # Días que se guarda el historial de eventos (TTL de DynamoDB)
+    dias-historial: 30
