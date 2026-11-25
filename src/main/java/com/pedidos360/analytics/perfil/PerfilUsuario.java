@@ -50,9 +50,10 @@ public class PerfilUsuario {
         actualizadoEn = cuando;
     }
 
-    // Baja todo el interés acumulado en la misma proporción (lo reciente pesa más)
-    public void decaer(double factor) {
-        categorias.replaceAll((categoria, puntos) -> Math.round(puntos * factor * 100) / 100.0);
+    // Baja el interés de las demás categorías (lo reciente pesa más). La categoría de la
+    // interacción no baja: ver o comprar algo nunca puede restarle interés a su categoría.
+    public void decaerSalvo(String categoria, double factor) {
+        categorias.replaceAll((nombre, puntos) -> nombre.equals(categoria) ? puntos : Math.round(puntos * factor * 100) / 100.0);
         categorias.values().removeIf(puntos -> puntos < 0.05);
     }
 
