@@ -29,7 +29,8 @@ class RecomendacionServiceTest {
             new ProductoInfo(3L, "Tacos Al Pastor", 6990.0, 40, "Comida rápida"),
             new ProductoInfo(4L, "Queso Gouda", 4890.0, 60, "Lácteos"),
             new ProductoInfo(5L, "Leche Entera", 5490.0, 0, "Lácteos"),
-            new ProductoInfo(6L, "Fideos Spaghetti", 1190.0, 200, "Abarrotes"));
+            new ProductoInfo(6L, "Fideos Spaghetti", 1190.0, 200, "Abarrotes"),
+            new ProductoInfo(7L, "Aceite Maravilla", 2990.0, 90, "Abarrotes"));
 
     private MemoriaPerfilRepository perfiles;
     private RecomendacionService service;
@@ -46,7 +47,11 @@ class RecomendacionServiceTest {
     }
 
     private InteraccionEvent evento(String tipo, Long productoId) {
-        return new InteraccionEvent("e" + (n++), tipo, "ana@duocuc.cl", productoId, null, null, 1, 1000.0, "test", Instant.now());
+        return evento(tipo, productoId, 1);
+    }
+
+    private InteraccionEvent evento(String tipo, Long productoId, int cantidad) {
+        return new InteraccionEvent("e" + (n++), tipo, "ana@duocuc.cl", productoId, null, null, cantidad, 1000.0, "test", Instant.now());
     }
 
     @Test
@@ -62,13 +67,35 @@ class RecomendacionServiceTest {
     }
 
     @Test
-    void noRecomiendaLoQueYaEstaEnElCarritoNiProductosSinStock() {
+    void noRecomiendaProductosSinStock() {
         service.procesar(evento(InteraccionEvent.PRODUCTO_VISTO, 4L));
-        service.procesar(evento(InteraccionEvent.CARRITO_AGREGADO, 4L));
 
-        List<Recomendacion> r = service.recomendar("ana@duocuc.cl", 6);
+        assertThat(service.recomendar("ana@duocuc.cl", 7)).extracting(Recomendacion::productoId).doesNotContain(5L);
+    }
 
-        assertThat(r).extracting(Recomendacion::productoId).doesNotContain(4L, 5L);
+    @Test
+    void unaCompraGrandeCambiaLasRecomendaciones() {
+        // Venía mirando comida rápida
+        for (int i = 0; i < 5; i++) {
+            service.procesar(evento(InteraccionEvent.PRODUCTO_VISTO, 1L));
+        }
+        assertThat(service.recomendar("ana@duocuc.cl", 1).get(0).categoria()).isEqualTo("Comida rápida");
+
+        // Compra 80 fideos: ahora lo primero es otro producto de abarrotes que todavía no compró
+        service.procesar(evento(InteraccionEvent.CARRITO_AGREGADO, 6L, 80));
+
+        List<Recomendacion> r = service.recomendar("ana@duocuc.cl", 3);
+        assertThat(r.get(0).productoId()).isEqualTo(7L);
+        assertThat(r.get(0).motivo()).isEqualTo("Porque te interesa Abarrotes");
+        // Lo ya comprado sigue disponible, pero debajo de lo nuevo de la misma categoría
+        assertThat(r).extracting(Recomendacion::productoId).containsSubsequence(7L, 6L);
+    }
+
+    @Test
+    void laCantidadCompradaPesaMasQueUnaUnidad() {
+        assertThat(RecomendacionService.puntosPorCantidad(1)).isEqualTo(3.0);
+        assertThat(RecomendacionService.puntosPorCantidad(80)).isGreaterThan(15);
+        assertThat(RecomendacionService.puntosPorCantidad(null)).isEqualTo(3.0);
     }
 
     @Test

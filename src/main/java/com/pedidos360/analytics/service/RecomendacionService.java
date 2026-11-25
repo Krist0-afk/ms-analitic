@@ -15,7 +15,11 @@ import java.util.List;
 import java.util.Map;
 
 // Arma el perfil de navegación con cada evento y recomienda productos parecidos
-// a los que el usuario consultó (misma categoría), descontando los que ya vio o tiene en el carrito.
+// a los que el usuario consultó o compró (misma categoría).
+// - El interés de compra crece con la cantidad (logarítmico: 80 unidades pesan más que 1, sin aplastar todo).
+// - Cada interacción baja un poco el interés anterior, para que lo reciente cambie las sugerencias.
+// - En este front CARRITO_AGREGADO llega al confirmar la compra, así que lo ya comprado no se excluye:
+//   baja en el orden, y primero aparecen los productos de la misma categoría que todavía no compró.
 @Service
 public class RecomendacionService {
 
@@ -24,6 +28,9 @@ public class RecomendacionService {
     static final double PUNTOS_VISTO = 1;
     static final double PUNTOS_CARRITO = 3;
     static final double PUNTOS_QUITADO = -1;
+    static final double DECAIMIENTO = 0.9;
+    static final double CASTIGO_VISTO = 0.4;
+    static final double CASTIGO_COMPRADO = 0.6;
 
     private final PerfilRepository perfiles;
     private final CatalogoCliente catalogo;
@@ -51,11 +58,13 @@ public class RecomendacionService {
                 : catalogo.producto(evento.productoId()).map(ProductoInfo::categoria).orElse(null);
         switch (evento.tipo()) {
             case InteraccionEvent.PRODUCTO_VISTO -> {
+                perfil.decaer(DECAIMIENTO);
                 perfil.sumarInteres(categoria, PUNTOS_VISTO);
                 perfil.productoVisto(evento.productoId());
             }
             case InteraccionEvent.CARRITO_AGREGADO -> {
-                perfil.sumarInteres(categoria, PUNTOS_CARRITO);
+                perfil.decaer(DECAIMIENTO);
+                perfil.sumarInteres(categoria, puntosPorCantidad(evento.cantidad()));
                 perfil.agregadoAlCarrito(evento.productoId());
             }
             case InteraccionEvent.CARRITO_QUITADO -> {
@@ -73,6 +82,12 @@ public class RecomendacionService {
                 evento.origen(), evento.ocurridoEn()));
     }
 
+    // 1 unidad = 3 puntos, 10 = 9,9 y 80 = 16,1
+    static double puntosPorCantidad(Integer cantidad) {
+        int unidades = cantidad == null || cantidad < 1 ? 1 : cantidad;
+        return PUNTOS_CARRITO * (1 + Math.log(unidades));
+    }
+
     public List<Recomendacion> recomendar(String usuarioEmail, int limite) {
         PerfilUsuario perfil = perfiles.buscar(usuarioEmail).orElseGet(() -> new PerfilUsuario(usuarioEmail));
         Map<Long, Long> popularidad = metricas.vistasPorProducto();
@@ -81,13 +96,13 @@ public class RecomendacionService {
 
         return catalogo.todos().stream()
                 .filter(p -> p.stock() == null || p.stock() > 0)
-                .filter(p -> !perfil.getEnCarrito().contains(p.id()))
                 .map(p -> {
                     double interes = perfil.getCategorias().getOrDefault(p.categoria(), 0.0) / maxInteres;
                     double popular = popularidad.getOrDefault(p.id(), 0L) / (double) maxVistas;
-                    // Lo recién visto baja un poco: se busca mostrar algo parecido pero nuevo
-                    double yaVisto = perfil.getVistos().indexOf(p.id()) >= 0 ? 0.4 : 0;
-                    double puntaje = 2 * interes + 0.5 * popular - yaVisto;
+                    // Lo visto o comprado baja: se busca mostrar algo parecido pero nuevo
+                    double yaVisto = perfil.getVistos().contains(p.id()) ? CASTIGO_VISTO : 0;
+                    double comprado = perfil.getEnCarrito().contains(p.id()) ? CASTIGO_COMPRADO : 0;
+                    double puntaje = 2 * interes + 0.5 * popular - Math.max(yaVisto, comprado);
                     String motivo = interes > 0 ? "Porque te interesa " + p.categoria() : "Popular en Pedidos360";
                     return new Recomendacion(p.id(), p.nombre(), p.categoria(), p.precio(), motivo, Math.round(puntaje * 100) / 100.0);
                 })

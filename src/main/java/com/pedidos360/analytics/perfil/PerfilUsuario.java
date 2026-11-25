@@ -13,10 +13,11 @@ public class PerfilUsuario {
     static final int MAX_EVENTOS_RECORDADOS = 50;
 
     private final String usuarioEmail;
-    // Interés acumulado por categoría (ver producto suma 1, agregar al carrito suma 3)
+    // Interés acumulado por categoría (ver producto suma 1, comprar suma 3 o más según la cantidad)
     private final Map<String, Double> categorias;
     // Productos vistos, el más reciente primero
     private final List<Long> vistos;
+    // Productos agregados al carrito al confirmar una compra (los más recientes primero)
     private final List<Long> enCarrito;
     // Últimos eventos aplicados: evita contar dos veces un evento reenviado
     private final List<String> eventos;
@@ -47,6 +48,12 @@ public class PerfilUsuario {
         recortar(eventos, MAX_EVENTOS_RECORDADOS);
         totalEventos++;
         actualizadoEn = cuando;
+    }
+
+    // Baja todo el interés acumulado en la misma proporción (lo reciente pesa más)
+    public void decaer(double factor) {
+        categorias.replaceAll((categoria, puntos) -> Math.round(puntos * factor * 100) / 100.0);
+        categorias.values().removeIf(puntos -> puntos < 0.05);
     }
 
     public void sumarInteres(String categoria, double puntos) {

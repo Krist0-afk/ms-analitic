@@ -90,7 +90,8 @@ public class MetricasService {
         if ("BLOQUEADO_FRAUDE".equals(pago.estado())) {
             Map<String, Object> alerta = new LinkedHashMap<>();
             alerta.put("ordenId", pago.ordenId());
-            alerta.put("tarjeta", "****" + pago.ultimos4());
+            // En Webpay la tarjeta se ingresa en Transbank: el bloqueo es por usuario, sin últimos dígitos
+            alerta.put("tarjeta", pago.ultimos4() != null ? "****" + pago.ultimos4() : "Webpay");
             alerta.put("usuario", ocultar(pago.usuarioEmail()));
             alerta.put("motivo", pago.motivo());
             alerta.put("hora", HORA.format(pago.ocurridoEn()));
